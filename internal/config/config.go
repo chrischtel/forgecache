@@ -35,7 +35,7 @@ type CacheConfig struct {
 // LoadConfig loads the .forgefile from the current directory
 func LoadConfig() (*ForgeConfig, error) {
 	configPath := filepath.Join(".", ".forgefile")
-	
+
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func LoadConfig() (*ForgeConfig, error) {
 // SaveConfig saves the config to a .forgefile
 func SaveConfig(config *ForgeConfig) error {
 	configPath := filepath.Join(".", ".forgefile")
-	
+
 	file, err := os.Create(configPath)
 	if err != nil {
 		return err

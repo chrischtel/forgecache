@@ -42,7 +42,7 @@ func (c *Cache) Initialize() error {
 // HashInputs computes a hash of all input files/directories
 func (c *Cache) HashInputs(inputs []string) (string, error) {
 	hasher := sha256.New()
-	
+
 	for _, pattern := range inputs {
 		// Check if it's a glob pattern
 		if strings.Contains(pattern, "*") {
@@ -51,7 +51,7 @@ func (c *Cache) HashInputs(inputs []string) (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("glob pattern error for %s: %v", pattern, err)
 			}
-			
+
 			for _, match := range matches {
 				if err := c.hashPath(match, hasher); err != nil {
 					return "", err
@@ -64,7 +64,7 @@ func (c *Cache) HashInputs(inputs []string) (string, error) {
 			}
 		}
 	}
-	
+
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
@@ -74,18 +74,18 @@ func (c *Cache) hashPath(path string, hasher io.Writer) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// Skip directories and hidden files
 		if info.IsDir() || filepath.Base(filePath)[0] == '.' {
 			return nil
 		}
-		
+
 		file, err := os.Open(filePath)
 		if err != nil {
 			return err
 		}
 		defer file.Close()
-		
+
 		// Write file path and content to hasher
 		hasher.Write([]byte(filePath))
 		_, err = io.Copy(hasher, file)
@@ -108,7 +108,7 @@ func (c *Cache) GetCacheDir() string {
 // StoreCacheEntry stores a cache entry for future lookups
 func (c *Cache) StoreCacheEntry(entry *CacheEntry) error {
 	cacheFile := filepath.Join(c.cacheDir, entry.InputHash+".json")
-	
+
 	// TODO: Implement JSON serialization and storage
 	// For now, just create an empty file to mark it as cached
 	file, err := os.Create(cacheFile)
@@ -116,10 +116,10 @@ func (c *Cache) StoreCacheEntry(entry *CacheEntry) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	fmt.Fprintf(file, "Cached at: %s\n", entry.Timestamp.Format(time.RFC3339))
 	fmt.Fprintf(file, "Command: %s\n", entry.BuildCmd)
 	fmt.Fprintf(file, "Input Hash: %s\n", entry.InputHash)
-	
+
 	return nil
 }

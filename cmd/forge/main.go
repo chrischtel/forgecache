@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/chrischtel/forgecache/internal/cache"
 	"github.com/chrischtel/forgecache/internal/config"
+	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -40,14 +40,14 @@ var initCmd = &cobra.Command{
 	Short: "Initialize ForgeCache in current directory",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Initializing ForgeCache...")
-		
+
 		// Create cache directory structure
 		c := cache.NewCache(".")
 		if err := c.Initialize(); err != nil {
 			fmt.Printf("Error initializing cache: %v\n", err)
 			os.Exit(1)
 		}
-		
+
 		// Create default .forgefile if it doesn't exist
 		if _, err := os.Stat(".forgefile"); os.IsNotExist(err) {
 			defaultConfig := config.DefaultConfig()
@@ -59,7 +59,7 @@ var initCmd = &cobra.Command{
 		} else {
 			fmt.Println(".forgefile already exists")
 		}
-		
+
 		fmt.Println("ForgeCache initialized successfully!")
 		fmt.Println("Edit .forgefile to configure your project")
 	},
@@ -70,7 +70,7 @@ var buildCmd = &cobra.Command{
 	Short: "Build project with smart caching",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Building with ForgeCache...")
-		
+
 		// Load configuration
 		cfg, err := config.LoadConfig()
 		if err != nil {
@@ -78,39 +78,39 @@ var buildCmd = &cobra.Command{
 			fmt.Println("Run 'forge init' to create a .forgefile")
 			os.Exit(1)
 		}
-		
+
 		// Initialize cache
 		c := cache.NewCache(".")
-		
+
 		// Compute input hash
 		inputHash, err := c.HashInputs(cfg.Cache.Inputs)
 		if err != nil {
 			fmt.Printf("Error computing input hash: %v\n", err)
 			os.Exit(1)
 		}
-		
+
 		fmt.Printf("Input hash: %s\n", inputHash[:16]+"...")
-		
+
 		// Check if build is cached
 		if c.IsCached(inputHash) {
 			fmt.Println("✅ Build result found in cache, skipping build")
 			return
 		}
-		
+
 		// Run build command
 		fmt.Printf("🔨 Running build command: %s\n", cfg.Build.Cmd)
-		
+
 		// TODO: Actually execute the build command
 		// For now, just simulate it
 		fmt.Println("Build completed successfully!")
-		
+
 		// Store cache entry
 		cacheEntry := &cache.CacheEntry{
 			InputHash: inputHash,
 			BuildCmd:  cfg.Build.Cmd,
 			Timestamp: time.Now(),
 		}
-		
+
 		if err := c.StoreCacheEntry(cacheEntry); err != nil {
 			fmt.Printf("Warning: Could not store cache entry: %v\n", err)
 		} else {
