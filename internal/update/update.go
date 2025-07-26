@@ -59,12 +59,12 @@ func CleanupOldExecutables() {
 	if runtime.GOOS != "windows" {
 		return // Only needed on Windows
 	}
-	
+
 	currentExe, err := os.Executable()
 	if err != nil {
 		return
 	}
-	
+
 	oldPath := currentExe + ".old"
 	if _, err := os.Stat(oldPath); err == nil {
 		os.Remove(oldPath) // Ignore errors - it's just cleanup
@@ -104,14 +104,40 @@ func (uc *UpdateChecker) CheckForUpdates() (*Release, bool, error) {
 
 // isUpdateAvailable determines if the fetched release is newer than current version
 func (uc *UpdateChecker) isUpdateAvailable(release *Release) bool {
-	// For dev versions, compare by release date (always update to latest)
+	// For dev versions, compare by commit hash from release body
 	if strings.Contains(uc.currentVersion, "dev") || strings.Contains(uc.currentVersion, "latest-dev") {
-		return true // Always update dev versions to latest
+		// Extract commit hash from release body
+		releaseCommit := uc.extractCommitFromReleaseBody(release.Body)
+		if releaseCommit != "" && uc.currentCommit != "unknown" {
+			// Compare commit hashes - if they're the same, no update needed
+			return releaseCommit != uc.currentCommit
+		}
+		// Fallback: if we can't compare commits, assume update available
+		return true
 	}
 
 	// For stable versions, compare version strings
 	// This is a simple comparison - in production you might want semantic version comparison
 	return release.TagName != uc.currentVersion
+}
+
+// extractCommitFromReleaseBody extracts the commit hash from the release body
+func (uc *UpdateChecker) extractCommitFromReleaseBody(body string) string {
+	// Look for pattern like "**Commit**: 8f60be04afaf6e95ee2e8bf3b87109c9a1bb1cc0"
+	lines := strings.Split(body, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "**Commit**:") {
+			// Extract the commit hash after the colon
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				commit := strings.TrimSpace(parts[1])
+				// Remove any markdown formatting
+				commit = strings.Trim(commit, "`")
+				return commit
+			}
+		}
+	}
+	return ""
 }
 
 // DownloadAndInstall downloads and installs the update
@@ -237,32 +263,32 @@ func (uc *UpdateChecker) installOnWindows(currentExe, newBinaryPath, archivePath
 	// 1. Move the current exe to .old
 	// 2. Move the new exe to the current location
 	// 3. The .old file will be cleaned up on next run
-	
+
 	oldPath := currentExe + ".old"
-	
+
 	// Remove any existing .old file
 	os.Remove(oldPath)
-	
+
 	// Move current executable to .old (this works even if it's running)
 	if err := os.Rename(currentExe, oldPath); err != nil {
 		return fmt.Errorf("failed to move current executable: %v", err)
 	}
-	
+
 	// Move new executable to current location
 	if err := uc.copyFile(newBinaryPath, currentExe); err != nil {
 		// Try to restore the original if this fails
 		os.Rename(oldPath, currentExe)
 		return fmt.Errorf("failed to install new executable: %v", err)
 	}
-	
+
 	// Clean up
 	os.Remove(archivePath)
 	os.Remove(newBinaryPath)
-	
+
 	fmt.Println("Update installed successfully!")
 	fmt.Println("The old version will be cleaned up automatically.")
 	fmt.Println("Please restart ForgeCache to use the new version.")
-	
+
 	return nil
 }
 
