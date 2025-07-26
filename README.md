@@ -1,137 +1,84 @@
-Absolutely — let's go deep into what this project is, how it's used, and why it's valuable.
+# ForgeCache
 
----
+**Universal Dev Cache & Dependency Manager**
 
-## 🧠 **Project Concept: ForgeCache (Universal Dev Cache & Dependency Manager)**
+ForgeCache is a powerful tool with the following features:
 
----
+| Feature | Description |
+|---------|-------------|
+| **Smart Builds** | Only rebuild when inputs actually change |
+| **Cross-Platform** | Works on Windows, Linux, macOS |
+| **Language Agnostic** | Works with any build command |
+| **Project Local** | Cache is local to each project |
+| **Fast** | Cache hits restore in milliseconds vs seconds/minutes for rebuilds |
+| **Simple Config** | Single TOML file configuration |nguage, cross-project development tool that intelligently caches build artifacts and manages language toolchains to accelerate your development workflow.
 
-## 🧾 What Is It?
+## What Is It?
 
-A **cross-language, cross-project dev tool** that helps you:
+A **smart build cache** that helps you:
 
-* ✅ Cache and re-use **build artifacts** across runs and machines
-* ✅ Manage language toolchains (like Go 1.21, Rust nightly, etc.)
-* ✅ Track **inputs/outputs** to only rebuild when truly needed
-* ✅ Keep all projects reproducible and fast — from tiny CLI tools to big apps
-* ✅ Replace scattered ad-hoc dev tooling with a **single smart engine**
+* Cache and re-use build artifacts across runs and machines
+* Manage language toolchains (Go, Rust, Zig, etc.)
+* Track inputs/outputs to only rebuild when truly needed
+* Keep all projects reproducible and fast
+* Replace scattered ad-hoc dev tooling with a single smart engine
 
-Think of it as:
+**Inspired by:**
+* **Bazel** - for smart dependency graphs and caching
+* **Volta/NVM** - for managing language/tool versions
+* **Nix** - but more approachable and easier to adopt
 
-* 🛠️ **Bazel** → for smart dependency graph + cache
-* 📦 **Volta / NVM** → for managing versions of languages/tools
-* 📂 **.gitignore + build/.cache** → combined into a coherent local cache strategy
-* 🌱 **Nix** → but not so hardcore and easier to adopt
+## Core Use Case
 
----
+If you write code in multiple languages (Go, Rust, Zig, Crystal) and want:
+- Consistent toolchain versions
+- Fast rebuilds through intelligent caching
+- Cache reuse across similar projects
+- Simple configuration (no complex Makefiles or bash scripts)
 
-## 💡 Core Use Case
+ForgeCache provides this through a single declarative config file.
 
-> You write code in Go, Rust, Crystal, or Zig. You want:
->
-> * consistent versions
-> * quick rebuilds
-> * cache reuse across similar projects
-> * a dev shell that "just works"
-> * less manual config (no `make`, no bash scripts)
+## Quick Start
 
-ForgeCache gives you this — from one declarative config file.
+### 1. Initialize a project
 
----
+```bash
+forge init
+```
 
-## 🧰 Example Workflow
-
-### 🔧 Project Setup
-
-You create a `.forgefile`:
+This creates a `.forgefile` with sensible defaults:
 
 ```toml
 [toolchain]
 go = "1.22"
-zig = "0.12.0"
-rust = "nightly"
 
 [build]
-cmd = "zig build"
+cmd = "go build -o myapp ./cmd"
 
 [cache]
-inputs = ["src/", "build.zig"]
-outputs = ["zig-out/"]
+inputs = ["go.mod", "go.sum", "**/*.go"]
+outputs = ["myapp"]
 ```
 
-Then you run:
+### 2. Build with caching
 
-```sh
-forge init        # sets up cache + local state
-forge fetch       # downloads tools (Zig, Rust, etc.)
-forge build       # builds, caches outputs smartly
-forge run         # runs the binary
+```bash
+forge build
 ```
 
----
+First run builds normally. Subsequent runs with unchanged inputs restore from cache instantly.
 
-### 🏎️ What Happens Internally
+### 3. Additional commands
 
-* Forge hashes all `inputs` (like `src/`, `build.zig`)
-* Checks if `outputs` exist in cache
-* If not: it runs the build command
-* Stores output hashes + metadata in `.forge/cache`
-* Next run: if nothing changed, skips rebuild
+```bash
+forge clean      # Clear build cache
+forge version    # Show version info
+forge update     # Auto-update to latest version
+```
 
----
+## How It Works
 
-## 🧠 Why Is It Powerful?
-
-| Feature                 | Why It Matters                                         |
-| ----------------------- | ------------------------------------------------------ |
-| Smart builds            | No more rebuilding stuff you didn’t touch              |
-| Language-aware          | Manages compilers & tools for you (Go, Zig, etc.)      |
-| Cross-platform          | Works on Windows, Linux, macOS                         |
-| Project-local           | Doesn't mess with global state                         |
-| Remote cache (optional) | Share cache with team or CI                            |
-| Pluggable               | Add plugins per language/tool (e.g., for Crystal, Lua) |
-
----
-
-## 🎯 Target Audience
-
-* Power users and OSS developers
-* Polyglot programmers (Go + Zig + Rust + Crystal…)
-* Teams who want **reproducible builds** but not full-on Nix
-* People who hate Makefiles but love speed
-
----
-
-## 🔌 Possible Advanced Features (Later)
-
-* 🔄 Rebuild on filewatch (`forge watch`)
-* 🧪 Test runners (`forge test`)
-* 🐳 Docker-like sandbox (`forge shell`)
-* ☁️ Remote cache server with authentication
-* 📦 Prebuilt package hosting (binary artifacts)
-* 🧩 VSCode / JetBrains plugin for integration
-
----
-
-## 🧪 Comparison Table
-
-| Tool           | What it does                  | Limitation                  |
-| -------------- | ----------------------------- | --------------------------- |
-| **Make/CMake** | Build automation              | Manual dependency tracking  |
-| **Bazel**      | Advanced caching + graph      | Heavy, complex, config hell |
-| **Volta/NVM**  | Language toolchain versioning | Language-specific           |
-| **Devbox**     | Reproducible dev envs         | Nix-based, slow             |
-| **ForgeCache** | Combines all above            | Lightweight, dev-focused    |
-
----
-
-## 💭 Why Build This?
-
-* ✅ You can dogfood it while coding in other languages
-* ✅ Easy to grow over time (remotes, plugins, etc.)
-* ✅ Very few tools combine **toolchain + build + cache + sandbox**
-* ✅ Real use cases from day one
-* ✅ Devs love things that make their workflow faster
-
----
-
+1. **Input Hashing**: ForgeCache computes SHA256 hashes of all input files and directories
+2. **Cache Check**: Before building, it checks if outputs exist for the current input hash
+3. **Smart Execution**: Only rebuilds when inputs change, otherwise restores cached outputs
+4. **Metadata Storage**: Stores build metadata (duration, success/failure, timestamps) in `.forge/cache`
