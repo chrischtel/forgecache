@@ -67,7 +67,7 @@ func (uc *UpdateChecker) CheckForUpdates() (*Release, bool, error) {
 	// Fetch release information
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to check for updates: %v", err)
+		return nil, false, fmt.Errorf("failed tos check for updates: %v", err)
 	}
 	defer resp.Body.Close()
 

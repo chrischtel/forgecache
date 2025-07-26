@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
 )
 
 // BuildResult represents the result of a build execution
@@ -35,7 +37,12 @@ func NewExecutor(workingDir string) *Executor {
 func (e *Executor) Execute(command string) (*BuildResult, error) {
 	startTime := time.Now()
 
-	fmt.Printf("🔨 Executing: %s\n", command)
+	colorBuild := color.New(color.FgMagenta, color.Bold)
+	colorSuccess := color.New(color.FgGreen, color.Bold)
+	colorError := color.New(color.FgRed, color.Bold)
+	colorDim := color.New(color.FgHiBlack)
+
+	colorBuild.Printf("Executing: %s\n", command)
 
 	// Parse command and arguments
 	parts := strings.Fields(command)
@@ -70,11 +77,11 @@ func (e *Executor) Execute(command string) (*BuildResult, error) {
 	}
 
 	if result.Success {
-		fmt.Printf("✅ Build completed successfully in %v\n", duration)
+		colorSuccess.Printf("Build completed successfully in %v\n", duration)
 	} else {
-		fmt.Printf("❌ Build failed with exit code %d in %v\n", result.ExitCode, duration)
+		colorError.Printf("Build failed with exit code %d in %v\n", result.ExitCode, duration)
 		if result.Error != "" {
-			fmt.Printf("Error: %s\n", result.Error)
+			colorDim.Printf("Error: %s\n", result.Error)
 		}
 	}
 

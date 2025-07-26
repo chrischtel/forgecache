@@ -12,6 +12,7 @@ import (
 	"github.com/chrischtel/forgecache/internal/config"
 	"github.com/chrischtel/forgecache/internal/update"
 	"github.com/chrischtel/forgecache/pkg/builder"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
@@ -23,6 +24,18 @@ var (
 	goVersion = "unknown" // Go version used for build
 	buildOS   = "unknown" // OS the binary was built on
 	buildArch = "unknown" // Architecture the binary was built for
+)
+
+// Color definitions for modern CLI output
+var (
+	colorSuccess = color.New(color.FgGreen, color.Bold)
+	colorError   = color.New(color.FgRed, color.Bold)
+	colorWarning = color.New(color.FgYellow, color.Bold)
+	colorInfo    = color.New(color.FgCyan, color.Bold)
+	colorBuild   = color.New(color.FgMagenta, color.Bold)
+	colorCache   = color.New(color.FgBlue, color.Bold)
+	colorHeader  = color.New(color.FgWhite, color.Bold)
+	colorDim     = color.New(color.FgHiBlack)
 )
 
 var rootCmd = &cobra.Command{
@@ -57,12 +70,13 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("ForgeCache %s\n", version)
-		fmt.Printf("Commit:      %s\n", commit)
-		fmt.Printf("Built:       %s\n", date)
-		fmt.Printf("Go version:  %s\n", goVersion)
-		fmt.Printf("OS/Arch:     %s/%s\n", buildOS, buildArch)
-		fmt.Printf("Runtime:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		colorHeader.Printf("\n[FORGE VERSION]\n")
+		colorInfo.Printf("ForgeCache %s\n", version)
+		colorDim.Printf("Commit:      %s\n", commit)
+		colorDim.Printf("Built:       %s\n", date)
+		colorDim.Printf("Go version:  %s\n", goVersion)
+		colorDim.Printf("OS/Arch:     %s/%s\n", buildOS, buildArch)
+		colorDim.Printf("Runtime:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	},
 }
 
@@ -71,40 +85,41 @@ var updateCmd = &cobra.Command{
 	Short: "Check for and install updates",
 	Long:  `Check for newer versions of ForgeCache and automatically download and install them.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Checking for updates...")
+		colorHeader.Printf("\n[UPDATE CHECK]\n")
+		colorDim.Printf("Checking for updates...\n\n")
 
 		checker := update.NewUpdateChecker(version, commit)
 		release, hasUpdate, err := checker.CheckForUpdates()
 		if err != nil {
-			fmt.Printf("Error checking for updates: %v\n", err)
+			colorError.Printf("Error checking for updates: %v\n", err)
 			os.Exit(1)
 		}
 
 		if !hasUpdate {
-			fmt.Println("✅ You are running the latest version!")
+			colorSuccess.Printf("You are running the latest version!\n")
 			return
 		}
 
-		fmt.Printf("🎉 New version available: %s\n", release.TagName)
-		fmt.Printf("📅 Released: %s\n", release.PublishedAt.Format("January 2, 2006"))
+		colorInfo.Printf("New version available: %s\n", release.TagName)
+		colorDim.Printf("Released: %s\n", release.PublishedAt.Format("January 2, 2006"))
 		if release.Body != "" {
-			fmt.Printf("📝 Release notes:\n%s\n", release.Body)
+			colorDim.Printf("Release notes:\n%s\n", release.Body)
 		}
 
 		// Ask for confirmation
-		fmt.Print("\nDo you want to download and install this update? [y/N]: ")
+		colorDim.Printf("\nDo you want to download and install this update? [y/N]: ")
 		var response string
 		fmt.Scanln(&response)
 
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			fmt.Println("Update cancelled.")
+			colorDim.Printf("Update cancelled.\n")
 			return
 		}
 
 		// Download and install
-		fmt.Println("\nDownloading update...")
+		colorInfo.Printf("\nDownloading update...\n")
 		if err := checker.DownloadAndInstall(release); err != nil {
-			fmt.Printf("Error installing update: %v\n", err)
+			colorError.Printf("Error installing update: %v\n", err)
 			os.Exit(1)
 		}
 	},
@@ -114,12 +129,13 @@ var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize ForgeCache in current directory",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Initializing ForgeCache...")
+		colorHeader.Printf("\n[INITIALIZE]\n")
+		colorDim.Printf("Initializing ForgeCache...\n\n")
 
 		// Create cache directory structure
 		c := cache.NewCache(".")
 		if err := c.Initialize(); err != nil {
-			fmt.Printf("Error initializing cache: %v\n", err)
+			colorError.Printf("Error initializing cache: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -127,16 +143,16 @@ var initCmd = &cobra.Command{
 		if _, err := os.Stat(".forgefile"); os.IsNotExist(err) {
 			defaultConfig := config.DefaultConfig()
 			if err := config.SaveConfig(defaultConfig); err != nil {
-				fmt.Printf("Error creating .forgefile: %v\n", err)
+				colorError.Printf("Error creating .forgefile: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("Created .forgefile with default configuration")
+			colorSuccess.Printf("Created .forgefile with default configuration\n")
 		} else {
-			fmt.Println(".forgefile already exists")
+			colorInfo.Printf(".forgefile already exists\n")
 		}
 
-		fmt.Println("ForgeCache initialized successfully!")
-		fmt.Println("Edit .forgefile to configure your project")
+		colorSuccess.Printf("ForgeCache initialized successfully!\n")
+		colorDim.Printf("Edit .forgefile to configure your project\n")
 	},
 }
 
@@ -144,43 +160,49 @@ var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Build project with smart caching",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Building with ForgeCache...")
+		forceRebuild, _ := cmd.Flags().GetBool("force")
 
-		// Load configuration
+		colorHeader.Printf("\n[FORGE BUILD]\n")
+		colorDim.Printf("Starting build process\n\n")
+
+		// Load and validate config
 		cfg, err := config.LoadConfig()
 		if err != nil {
-			fmt.Printf("Error loading .forgefile: %v\n", err)
-			fmt.Println("Run 'forge init' to create a .forgefile")
+			colorError.Printf("Failed to load configuration: %v\n", err)
+			colorDim.Printf("Run 'forge init' to create a .forgefile\n")
 			os.Exit(1)
 		}
+
+		colorInfo.Printf("Configuration loaded successfully\n")
 
 		// Initialize cache and executor
 		c := cache.NewCache(".")
 		if err := c.Initialize(); err != nil {
-			fmt.Printf("Error initializing cache: %v\n", err)
+			colorError.Printf("Error initializing cache: %v\n", err)
 			os.Exit(1)
 		}
 		executor := builder.NewExecutor(".")
 
 		// Compute input hash
+		colorDim.Printf("Checking cache...\n")
 		inputHash, err := c.HashInputs(cfg.Cache.Inputs)
 		if err != nil {
-			fmt.Printf("Error computing input hash: %v\n", err)
+			colorError.Printf("Error computing input hash: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Input hash: %s\n", inputHash[:16]+"...")
+		colorDim.Printf("Input hash: %s...\n", inputHash[:16])
 
-		// Check if build is cached
-		if c.IsCached(inputHash) {
-			fmt.Println("✅ Build result found in cache, restoring outputs...")
+		// Check if build is cached (unless forcing rebuild)
+		if !forceRebuild && c.IsCached(inputHash) {
+			colorCache.Printf("Cache hit! Checking build result...\n")
 
 			// Load cache entry to check if it was successful
 			cacheEntry, err := c.LoadCacheEntry(inputHash)
 			if err != nil {
-				fmt.Printf("Warning: Could not load cache entry: %v\n", err)
+				colorWarning.Printf("Warning: Could not load cache entry: %v\n", err)
 			} else if !cacheEntry.Success {
-				fmt.Printf("⚠️  Previous build failed (exit code %d), rebuilding...\n", cacheEntry.ExitCode)
+				colorWarning.Printf("Previous build failed (exit code %d), rebuilding...\n", cacheEntry.ExitCode)
 			} else {
 				// Restore outputs from cache
 				cacheEntryPath := c.GetCacheEntryPath(inputHash)
@@ -192,26 +214,27 @@ var buildCmd = &cobra.Command{
 							absOutput, _ := filepath.Abs(output)
 							absExe, _ := filepath.Abs(currentExe)
 							if absOutput == absExe {
-								fmt.Printf("📦 Cache hit! Build outputs are up-to-date (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
-								fmt.Println("💡 Note: Cannot overwrite running executable, but cache indicates no rebuild needed")
+								colorSuccess.Printf("Cache hit! Build outputs are up-to-date (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
+								colorDim.Printf("Note: Cannot overwrite running executable, but cache indicates no rebuild needed\n")
 								return
 							}
 						}
 					}
-					fmt.Printf("Warning: Could not restore outputs: %v\n", err)
+					colorWarning.Printf("Warning: Could not restore outputs: %v\n", err)
 				} else {
-					fmt.Printf("📦 Outputs restored from cache (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
+					colorSuccess.Printf("Outputs restored from cache (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
 				}
 				return
 			}
 		}
 
 		// Run build command
-		fmt.Printf("🔨 Running build command: %s\n", cfg.Build.Cmd)
+		colorBuild.Printf("Building project...\n")
+		colorDim.Printf("Running command: %s\n", cfg.Build.Cmd)
 
 		buildResult, err := executor.Execute(cfg.Build.Cmd)
 		if err != nil {
-			fmt.Printf("Error executing build command: %v\n", err)
+			colorError.Printf("Error executing build command: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -226,18 +249,18 @@ var buildCmd = &cobra.Command{
 		}
 
 		if err := c.StoreCacheEntry(cacheEntry); err != nil {
-			fmt.Printf("Warning: Could not store cache entry: %v\n", err)
+			colorWarning.Printf("Warning: Could not store cache entry: %v\n", err)
 		} else {
-			fmt.Println("💾 Build result cached for future use")
+			colorCache.Printf("Build result cached for future use\n")
 		}
 
 		// Cache outputs if build was successful
 		if buildResult.Success {
 			cacheEntryPath := c.GetCacheEntryPath(inputHash)
 			if err := executor.CopyOutputs(cfg.Cache.Outputs, cacheEntryPath); err != nil {
-				fmt.Printf("Warning: Could not cache outputs: %v\n", err)
+				colorWarning.Printf("Warning: Could not cache outputs: %v\n", err)
 			} else {
-				fmt.Println("📦 Build outputs cached")
+				colorCache.Printf("Build outputs cached\n")
 			}
 		}
 
@@ -253,12 +276,15 @@ var cleanCmd = &cobra.Command{
 	Short: "Clean build cache and outputs",
 	Long:  `Remove cached build results and optionally clean output files.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		colorHeader.Printf("\n[CLEAN CACHE]\n")
+		colorDim.Printf("Cleaning build cache\n\n")
+
 		c := cache.NewCache(".")
 		cacheDir := c.GetCacheDir()
 
 		// Check if cache directory exists
 		if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
-			fmt.Println("No cache found - nothing to clean")
+			colorInfo.Printf("No cache found - nothing to clean\n")
 			return
 		}
 
@@ -275,29 +301,29 @@ var cleanCmd = &cobra.Command{
 		})
 
 		if err != nil {
-			fmt.Printf("Error calculating cache size: %v\n", err)
+			colorWarning.Printf("Error calculating cache size: %v\n", err)
 		} else {
-			fmt.Printf("Cache size: %.2f MB\n", float64(totalSize)/(1024*1024))
+			colorInfo.Printf("Cache size: %.2f MB\n", float64(totalSize)/(1024*1024))
 		}
 
 		// Ask for confirmation
-		fmt.Print("Are you sure you want to clean the cache? [y/N]: ")
+		colorDim.Printf("Are you sure you want to clean the cache? [y/N]: ")
 		var response string
 		fmt.Scanln(&response)
 
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			fmt.Println("Clean cancelled.")
+			colorDim.Printf("Clean cancelled.\n")
 			return
 		}
 
 		// Remove cache directory
 		if err := os.RemoveAll(cacheDir); err != nil {
-			fmt.Printf("Error cleaning cache: %v\n", err)
+			colorError.Printf("Error cleaning cache: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("✅ Cache cleaned successfully!")
-		fmt.Printf("Freed %.2f MB of disk space\n", float64(totalSize)/(1024*1024))
+		colorSuccess.Printf("Cache cleaned successfully!\n")
+		colorInfo.Printf("Freed %.2f MB of disk space\n", float64(totalSize)/(1024*1024))
 	},
 }
 
@@ -305,8 +331,9 @@ var fetchCmd = &cobra.Command{
 	Use:   "fetch",
 	Short: "Download and setup toolchain dependencies",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Fetching toolchain dependencies...")
-		// TODO: Implement fetch logic
+		colorHeader.Printf("\n[FETCH DEPENDENCIES]\n")
+		colorDim.Printf("Fetching toolchain dependencies...\n")
+		colorWarning.Printf("TODO: Implement fetch logic\n")
 	},
 }
 
@@ -314,7 +341,8 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the built binary",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Running project...")
-		// TODO: Implement run logic
+		colorHeader.Printf("\n[RUN PROJECT]\n")
+		colorDim.Printf("Running project...\n")
+		colorWarning.Printf("TODO: Implement run logic\n")
 	},
 }
