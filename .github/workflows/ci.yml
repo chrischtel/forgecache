@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, ci-testing ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '*.txt'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+  pull_request:
+    branches: [ main, develop, ci-testing ]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '*.txt'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Download dependencies
+      run: go mod download
+    
+    - name: Verify dependencies
+      run: go mod verify
+    
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.out ./...
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.out
+        flags: unittests
+        name: codecov-umbrella
+
+  build:
+    name: Build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Get build info
+      id: build_info
+      run: |
+        echo "COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        echo "GO_VERSION=$(go version | cut -d' ' -f3)" >> $GITHUB_OUTPUT
+    
+    - name: Build binary (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        go build -v -ldflags="-w -s \
+          -X main.version=dev-${{ steps.build_info.outputs.COMMIT_HASH }} \
+          -X main.commit=${{ steps.build_info.outputs.COMMIT_HASH }} \
+          -X main.date=${{ steps.build_info.outputs.BUILD_DATE }} \
+          -X main.goVersion=${{ steps.build_info.outputs.GO_VERSION }} \
+          -X main.buildOS=${{ runner.os }} \
+          -X main.buildArch=${{ runner.arch }}" \
+          -o forge ./cmd/forge
+        ./forge version
+    
+    - name: Build binary (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        go build -v -ldflags="-w -s -X main.version=dev-${{ steps.build_info.outputs.COMMIT_HASH }} -X main.commit=${{ steps.build_info.outputs.COMMIT_HASH }} -X main.date=${{ steps.build_info.outputs.BUILD_DATE }} -X main.goVersion=${{ steps.build_info.outputs.GO_VERSION }} -X main.buildOS=${{ runner.os }} -X main.buildArch=${{ runner.arch }}" -o forge.exe ./cmd/forge
+        .\forge.exe version
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: forge-${{ matrix.os }}
+        path: |
+          forge*
+          !forge.exe.manifest
+
+  integration-test:
+    name: Integration Test
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+    
+    - name: Download build artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: forge-ubuntu-latest
+    
+    - name: Make binary executable
+      run: chmod +x forge
+    
+    - name: Test forge init
+      run: |
+        mkdir test-project
+        cd test-project
+        ../forge init
+        cat .forgefile
+        ls -la .forge/
+    
+    - name: Test forge build with Go project
+      run: |
+        cd test-project
+        # Create a simple Go project
+        echo 'module test' > go.mod
+        echo 'package main; import "fmt"; func main() { fmt.Println("Hello from test!") }' > main.go
+        
+        # Update .forgefile for the test project
+        cat > .forgefile << EOF
+        [toolchain]
+          go = "1.24"
+        
+        [build]
+          cmd = "go build -o test-binary ."
+        
+        [cache]
+          inputs = ["go.mod", "**/*.go"]
+          outputs = ["test-binary"]
+        EOF
+        
+        # Test build
+        ../forge build
+        ./test-binary
+        
+        # Test cache hit
+        ../forge build

@@ -3,17 +3,30 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/chrischtel/forgecache/internal/cache"
 	"github.com/chrischtel/forgecache/internal/config"
+	"github.com/chrischtel/forgecache/internal/update"
 	"github.com/chrischtel/forgecache/pkg/builder"
 	"github.com/spf13/cobra"
 )
 
+// Build-time variables injected via ldflags
+var (
+	version   = "dev"        // Version string (e.g., "v1.0.0" or "latest-dev")
+	commit    = "unknown"    // Git commit hash
+	date      = "unknown"    // Build date (RFC3339 format)
+	goVersion = "unknown"    // Go version used for build
+	buildOS   = "unknown"    // OS the binary was built on
+	buildArch = "unknown"    // Architecture the binary was built for
+)
+
 var rootCmd = &cobra.Command{
 	Use:   "forge",
-	Short: "ForgeCache - Universal Dev Cache & Dependency Manager v0.1",
+	Short: fmt.Sprintf("ForgeCache - Universal Dev Cache & Dependency Manager %s", version),
 	Long: `ForgeCache is a cross-language, cross-project dev tool that helps you:
 - Cache and re-use build artifacts across runs and machines
 - Manage language toolchains (like Go 1.21, Rust nightly, etc.)
@@ -30,10 +43,69 @@ func main() {
 
 func init() {
 	// Add subcommands
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(buildCmd)
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(runCmd)
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show version information",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("ForgeCache %s\n", version)
+		fmt.Printf("Commit:      %s\n", commit)
+		fmt.Printf("Built:       %s\n", date)
+		fmt.Printf("Go version:  %s\n", goVersion)
+		fmt.Printf("OS/Arch:     %s/%s\n", buildOS, buildArch)
+		fmt.Printf("Runtime:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	},
+}
+
+var updateCmd = &cobra.Command{
+	Use:   "update",
+	Short: "Check for and install updates",
+	Long:  `Check for newer versions of ForgeCache and automatically download and install them.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println("Checking for updates...")
+		
+		checker := update.NewUpdateChecker(version, commit)
+		release, hasUpdate, err := checker.CheckForUpdates()
+		if err != nil {
+			fmt.Printf("Error checking for updates: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !hasUpdate {
+			fmt.Println("✅ You are running the latest version!")
+			return
+		}
+
+		fmt.Printf("🎉 New version available: %s\n", release.TagName)
+		fmt.Printf("📅 Released: %s\n", release.PublishedAt.Format("January 2, 2006"))
+		if release.Body != "" {
+			fmt.Printf("📝 Release notes:\n%s\n", release.Body)
+		}
+
+		// Ask for confirmation
+		fmt.Print("\nDo you want to download and install this update? [y/N]: ")
+		var response string
+		fmt.Scanln(&response)
+		
+		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+			fmt.Println("Update cancelled.")
+			return
+		}
+
+		// Download and install
+		fmt.Println("\nDownloading update...")
+		if err := checker.DownloadAndInstall(release); err != nil {
+			fmt.Printf("Error installing update: %v\n", err)
+			os.Exit(1)
+		}
+	},
 }
 
 var initCmd = &cobra.Command{

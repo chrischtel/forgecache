@@ -1,0 +1,174 @@
+name: Release
+
+on: 
+  push:
+    branches: [develop]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/**'
+      - '*.txt'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.editorconfig'
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  GO_VERSION: "1.24"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset_name: forge-linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset_name: forge-linux-arm64
+          - goos: windows
+            goarch: amd64
+            asset_name: forge-windows-amd64.exe
+          - goos: darwin
+            goarch: amd64
+            asset_name: forge-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset_name: forge-darwin-arm64
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            # For dev releases, always use "latest-dev" with commit hash in binary
+            VERSION="latest-dev-${GITHUB_SHA::8}"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+      
+      - name: Get build info
+        id: build_info
+        run: |
+          echo "COMMIT_HASH=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          echo "GO_VERSION=$(go version | cut -d' ' -f3)" >> $GITHUB_OUTPUT
+      
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -v -ldflags="-w -s \
+            -X main.version=${{ steps.version.outputs.VERSION }} \
+            -X main.commit=${{ steps.build_info.outputs.COMMIT_HASH }} \
+            -X main.date=${{ steps.build_info.outputs.BUILD_DATE }} \
+            -X main.goVersion=${{ steps.build_info.outputs.GO_VERSION }} \
+            -X main.buildOS=${{ matrix.goos }} \
+            -X main.buildArch=${{ matrix.goarch }}" \
+            -o ${{ matrix.asset_name }} ./cmd/forge
+      
+      - name: Create archive (Unix)
+        if: matrix.goos != 'windows'
+        run: |
+          tar -czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.asset_name }} README.md
+          echo "ASSET_PATH=${{ matrix.asset_name }}.tar.gz" >> $GITHUB_ENV
+      
+      - name: Create archive (Windows)
+        if: matrix.goos == 'windows'
+        run: |
+          zip -r ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }} README.md
+          echo "ASSET_PATH=${{ matrix.asset_name }}.zip" >> $GITHUB_ENV
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}-archive
+          path: ${{ env.ASSET_PATH }}
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Determine version and release type
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            RELEASE_TYPE="stable"
+            PRERELEASE=false
+            TAG_NAME="${VERSION}"
+          else
+            # For dev releases, always use "latest-dev" tag
+            VERSION="latest-dev"
+            RELEASE_TYPE="dev"
+            PRERELEASE=true
+            TAG_NAME="latest-dev"
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          echo "RELEASE_TYPE=${RELEASE_TYPE}" >> $GITHUB_OUTPUT
+          echo "PRERELEASE=${PRERELEASE}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "Release version: ${VERSION} (${RELEASE_TYPE})"
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          merge-multiple: true
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.TAG_NAME }}
+          name: ${{ steps.version.outputs.RELEASE_TYPE == 'dev' && 'ForgeCache (Latest Development)' || format('ForgeCache {0}', steps.version.outputs.VERSION) }}
+          files: ./artifacts/*
+          generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.PRERELEASE }}
+          body: |
+            ## ${{ steps.version.outputs.RELEASE_TYPE == 'dev' && 'Latest Development Build' || format('ForgeCache {0}', steps.version.outputs.VERSION) }}
+            
+            **Release Type**: ${{ steps.version.outputs.RELEASE_TYPE == 'dev' && 'Development (Latest)' || 'Stable' }}
+            **Commit**: ${{ github.sha }}
+            ${{ steps.version.outputs.RELEASE_TYPE == 'dev' && format('**Built**: {0}', github.event.head_commit.timestamp) || '' }}
+            
+            ${{ steps.version.outputs.RELEASE_TYPE == 'dev' && '⚠️ This is the latest development build. It gets updated with every push to the develop branch. Use stable releases for production.' || '' }}
+            
+            ### Download
+            Choose the appropriate binary for your platform:
+            - **Linux**: `forge-linux-amd64.tar.gz` or `forge-linux-arm64.tar.gz`
+            - **macOS**: `forge-darwin-amd64.tar.gz` or `forge-darwin-arm64.tar.gz`
+            - **Windows**: `forge-windows-amd64.exe.zip`
+            
+            ### Features
+            - ⚡ **Smart build caching** - Only rebuild when inputs change
+            - 📦 **Output caching** - Restore build artifacts from cache
+            - 🔍 **Content-based hashing** - Detects changes automatically
+            - 🌐 **Cross-platform** - Works on Windows, macOS, and Linux
+            - 📄 **Simple configuration** - Just a `.forgefile` TOML file

@@ -21,6 +21,9 @@ vendor/
 forge
 forge.exe
 
+# Build scripts output
+scripts/*.log
+
 # IDE/editor files
 .vscode/
 .idea/
