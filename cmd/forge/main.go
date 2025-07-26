@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -16,12 +17,12 @@ import (
 
 // Build-time variables injected via ldflags
 var (
-	version   = "dev"        // Version string (e.g., "v1.0.0" or "latest-dev")
-	commit    = "unknown"    // Git commit hash
-	date      = "unknown"    // Build date (RFC3339 format)
-	goVersion = "unknown"    // Go version used for build
-	buildOS   = "unknown"    // OS the binary was built on
-	buildArch = "unknown"    // Architecture the binary was built for
+	version   = "dev"     // Version string (e.g., "v1.0.0" or "latest-dev")
+	commit    = "unknown" // Git commit hash
+	date      = "unknown" // Build date (RFC3339 format)
+	goVersion = "unknown" // Go version used for build
+	buildOS   = "unknown" // OS the binary was built on
+	buildArch = "unknown" // Architecture the binary was built for
 )
 
 var rootCmd = &cobra.Command{
@@ -47,6 +48,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(buildCmd)
+	rootCmd.AddCommand(cleanCmd)
 	rootCmd.AddCommand(fetchCmd)
 	rootCmd.AddCommand(runCmd)
 }
@@ -70,7 +72,7 @@ var updateCmd = &cobra.Command{
 	Long:  `Check for newer versions of ForgeCache and automatically download and install them.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Checking for updates...")
-		
+
 		checker := update.NewUpdateChecker(version, commit)
 		release, hasUpdate, err := checker.CheckForUpdates()
 		if err != nil {
@@ -93,7 +95,7 @@ var updateCmd = &cobra.Command{
 		fmt.Print("\nDo you want to download and install this update? [y/N]: ")
 		var response string
 		fmt.Scanln(&response)
-		
+
 		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
 			fmt.Println("Update cancelled.")
 			return
@@ -154,6 +156,10 @@ var buildCmd = &cobra.Command{
 
 		// Initialize cache and executor
 		c := cache.NewCache(".")
+		if err := c.Initialize(); err != nil {
+			fmt.Printf("Error initializing cache: %v\n", err)
+			os.Exit(1)
+		}
 		executor := builder.NewExecutor(".")
 
 		// Compute input hash
@@ -179,6 +185,19 @@ var buildCmd = &cobra.Command{
 				// Restore outputs from cache
 				cacheEntryPath := c.GetCacheEntryPath(inputHash)
 				if err := executor.RestoreOutputs(cfg.Cache.Outputs, cacheEntryPath); err != nil {
+					// Check if the error is due to trying to overwrite the running executable
+					currentExe, exeErr := os.Executable()
+					if exeErr == nil {
+						for _, output := range cfg.Cache.Outputs {
+							absOutput, _ := filepath.Abs(output)
+							absExe, _ := filepath.Abs(currentExe)
+							if absOutput == absExe {
+								fmt.Printf("📦 Cache hit! Build outputs are up-to-date (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
+								fmt.Println("💡 Note: Cannot overwrite running executable, but cache indicates no rebuild needed")
+								return
+							}
+						}
+					}
 					fmt.Printf("Warning: Could not restore outputs: %v\n", err)
 				} else {
 					fmt.Printf("📦 Outputs restored from cache (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
@@ -226,6 +245,59 @@ var buildCmd = &cobra.Command{
 		if !buildResult.Success {
 			os.Exit(buildResult.ExitCode)
 		}
+	},
+}
+
+var cleanCmd = &cobra.Command{
+	Use:   "clean",
+	Short: "Clean build cache and outputs",
+	Long:  `Remove cached build results and optionally clean output files.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		c := cache.NewCache(".")
+		cacheDir := c.GetCacheDir()
+
+		// Check if cache directory exists
+		if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+			fmt.Println("No cache found - nothing to clean")
+			return
+		}
+
+		// Get cache directory size
+		var totalSize int64
+		err := filepath.Walk(cacheDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				totalSize += info.Size()
+			}
+			return nil
+		})
+
+		if err != nil {
+			fmt.Printf("Error calculating cache size: %v\n", err)
+		} else {
+			fmt.Printf("Cache size: %.2f MB\n", float64(totalSize)/(1024*1024))
+		}
+
+		// Ask for confirmation
+		fmt.Print("Are you sure you want to clean the cache? [y/N]: ")
+		var response string
+		fmt.Scanln(&response)
+
+		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+			fmt.Println("Clean cancelled.")
+			return
+		}
+
+		// Remove cache directory
+		if err := os.RemoveAll(cacheDir); err != nil {
+			fmt.Printf("Error cleaning cache: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("✅ Cache cleaned successfully!")
+		fmt.Printf("Freed %.2f MB of disk space\n", float64(totalSize)/(1024*1024))
 	},
 }
 

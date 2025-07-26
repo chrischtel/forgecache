@@ -17,8 +17,8 @@ import (
 
 const (
 	GitHubAPI      = "https://api.github.com"
-	RepoOwner      = "chrischtel"  // Update this to your GitHub username
-	RepoName       = "forgecache"  // Update this to your repo name
+	RepoOwner      = "chrischtel" // Update this to your GitHub username
+	RepoName       = "forgecache" // Update this to your repo name
 	UpdateCheckURL = GitHubAPI + "/repos/" + RepoOwner + "/" + RepoName + "/releases/latest"
 	DevReleaseURL  = GitHubAPI + "/repos/" + RepoOwner + "/" + RepoName + "/releases/tags/latest-dev"
 )
@@ -117,7 +117,7 @@ func (uc *UpdateChecker) DownloadAndInstall(release *Release) error {
 	// Create temporary file
 	tempDir := os.TempDir()
 	tempFile := filepath.Join(tempDir, asset.Name)
-	
+
 	out, err := os.Create(tempFile)
 	if err != nil {
 		return fmt.Errorf("failed to create temporary file: %v", err)
