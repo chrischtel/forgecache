@@ -7,12 +7,13 @@ import (
 
 	"github.com/chrischtel/forgecache/internal/cache"
 	"github.com/chrischtel/forgecache/internal/config"
+	"github.com/chrischtel/forgecache/pkg/builder"
 	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "forge",
-	Short: "ForgeCache - Universal Dev Cache & Dependency Manager",
+	Short: "ForgeCache - Universal Dev Cache & Dependency Manager v0.1",
 	Long: `ForgeCache is a cross-language, cross-project dev tool that helps you:
 - Cache and re-use build artifacts across runs and machines
 - Manage language toolchains (like Go 1.21, Rust nightly, etc.)
@@ -79,8 +80,9 @@ var buildCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Initialize cache
+		// Initialize cache and executor
 		c := cache.NewCache(".")
+		executor := builder.NewExecutor(".")
 
 		// Compute input hash
 		inputHash, err := c.HashInputs(cfg.Cache.Inputs)
@@ -93,28 +95,64 @@ var buildCmd = &cobra.Command{
 
 		// Check if build is cached
 		if c.IsCached(inputHash) {
-			fmt.Println("✅ Build result found in cache, skipping build")
-			return
+			fmt.Println("✅ Build result found in cache, restoring outputs...")
+
+			// Load cache entry to check if it was successful
+			cacheEntry, err := c.LoadCacheEntry(inputHash)
+			if err != nil {
+				fmt.Printf("Warning: Could not load cache entry: %v\n", err)
+			} else if !cacheEntry.Success {
+				fmt.Printf("⚠️  Previous build failed (exit code %d), rebuilding...\n", cacheEntry.ExitCode)
+			} else {
+				// Restore outputs from cache
+				cacheEntryPath := c.GetCacheEntryPath(inputHash)
+				if err := executor.RestoreOutputs(cfg.Cache.Outputs, cacheEntryPath); err != nil {
+					fmt.Printf("Warning: Could not restore outputs: %v\n", err)
+				} else {
+					fmt.Printf("📦 Outputs restored from cache (built %v ago)\n", time.Since(cacheEntry.Timestamp).Truncate(time.Second))
+				}
+				return
+			}
 		}
 
 		// Run build command
 		fmt.Printf("🔨 Running build command: %s\n", cfg.Build.Cmd)
 
-		// TODO: Actually execute the build command
-		// For now, just simulate it
-		fmt.Println("Build completed successfully!")
+		buildResult, err := executor.Execute(cfg.Build.Cmd)
+		if err != nil {
+			fmt.Printf("Error executing build command: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Store cache entry
 		cacheEntry := &cache.CacheEntry{
 			InputHash: inputHash,
 			BuildCmd:  cfg.Build.Cmd,
 			Timestamp: time.Now(),
+			Success:   buildResult.Success,
+			ExitCode:  buildResult.ExitCode,
+			Duration:  buildResult.Duration.String(),
 		}
 
 		if err := c.StoreCacheEntry(cacheEntry); err != nil {
 			fmt.Printf("Warning: Could not store cache entry: %v\n", err)
 		} else {
 			fmt.Println("💾 Build result cached for future use")
+		}
+
+		// Cache outputs if build was successful
+		if buildResult.Success {
+			cacheEntryPath := c.GetCacheEntryPath(inputHash)
+			if err := executor.CopyOutputs(cfg.Cache.Outputs, cacheEntryPath); err != nil {
+				fmt.Printf("Warning: Could not cache outputs: %v\n", err)
+			} else {
+				fmt.Println("📦 Build outputs cached")
+			}
+		}
+
+		// Exit with same code as build command
+		if !buildResult.Success {
+			os.Exit(buildResult.ExitCode)
 		}
 	},
 }

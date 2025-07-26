@@ -2,8 +2,8 @@
   go = "1.22"
 
 [build]
-  cmd = "go build"
+  cmd = "go build -o forge.exe ./cmd/forge"
 
 [cache]
   inputs = ["go.mod", "go.sum", "**/*.go"]
-  outputs = ["./"]
+  outputs = ["forge.exe"]

@@ -3,6 +3,7 @@ package cache
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,9 @@ type CacheEntry struct {
 	OutputHash string    `json:"output_hash"`
 	Timestamp  time.Time `json:"timestamp"`
 	BuildCmd   string    `json:"build_cmd"`
+	Success    bool      `json:"success"`
+	ExitCode   int       `json:"exit_code"`
+	Duration   string    `json:"duration"`
 }
 
 // Cache manages the ForgeCache storage
@@ -109,17 +113,38 @@ func (c *Cache) GetCacheDir() string {
 func (c *Cache) StoreCacheEntry(entry *CacheEntry) error {
 	cacheFile := filepath.Join(c.cacheDir, entry.InputHash+".json")
 
-	// TODO: Implement JSON serialization and storage
-	// For now, just create an empty file to mark it as cached
-	file, err := os.Create(cacheFile)
+	// Serialize cache entry to JSON
+	data, err := json.MarshalIndent(entry, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal cache entry: %v", err)
 	}
-	defer file.Close()
 
-	fmt.Fprintf(file, "Cached at: %s\n", entry.Timestamp.Format(time.RFC3339))
-	fmt.Fprintf(file, "Command: %s\n", entry.BuildCmd)
-	fmt.Fprintf(file, "Input Hash: %s\n", entry.InputHash)
+	// Write JSON to cache file
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
+	}
 
 	return nil
+}
+
+// LoadCacheEntry loads a cache entry from disk
+func (c *Cache) LoadCacheEntry(inputHash string) (*CacheEntry, error) {
+	cacheFile := filepath.Join(c.cacheDir, inputHash+".json")
+
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var entry CacheEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cache entry: %v", err)
+	}
+
+	return &entry, nil
+}
+
+// GetCacheEntryPath returns the path for storing cached outputs
+func (c *Cache) GetCacheEntryPath(inputHash string) string {
+	return filepath.Join(c.cacheDir, inputHash)
 }
