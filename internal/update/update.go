@@ -54,6 +54,23 @@ func NewUpdateChecker(currentVersion, currentCommit string) *UpdateChecker {
 	}
 }
 
+// CleanupOldExecutables removes old executable files left over from updates
+func CleanupOldExecutables() {
+	if runtime.GOOS != "windows" {
+		return // Only needed on Windows
+	}
+	
+	currentExe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	
+	oldPath := currentExe + ".old"
+	if _, err := os.Stat(oldPath); err == nil {
+		os.Remove(oldPath) // Ignore errors - it's just cleanup
+	}
+}
+
 // CheckForUpdates checks if a newer version is available
 func (uc *UpdateChecker) CheckForUpdates() (*Release, bool, error) {
 	// Determine which release to check against
@@ -165,12 +182,6 @@ func (uc *UpdateChecker) extractAndInstall(archivePath, assetName string) error 
 		return fmt.Errorf("failed to get current executable path: %v", err)
 	}
 
-	// Create backup
-	backupPath := currentExe + ".backup"
-	if err := uc.copyFile(currentExe, backupPath); err != nil {
-		return fmt.Errorf("failed to create backup: %v", err)
-	}
-
 	var newBinaryPath string
 
 	// Extract based on file extension
@@ -186,6 +197,17 @@ func (uc *UpdateChecker) extractAndInstall(archivePath, assetName string) error 
 		return fmt.Errorf("failed to extract archive: %v", err)
 	}
 
+	// On Windows, we need a different strategy because we can't replace a running executable
+	if runtime.GOOS == "windows" {
+		return uc.installOnWindows(currentExe, newBinaryPath, archivePath)
+	}
+
+	// Create backup
+	backupPath := currentExe + ".backup"
+	if err := uc.copyFile(currentExe, backupPath); err != nil {
+		return fmt.Errorf("failed to create backup: %v", err)
+	}
+
 	// Replace current binary
 	if err := uc.copyFile(newBinaryPath, currentExe); err != nil {
 		// Restore backup on failure
@@ -194,10 +216,8 @@ func (uc *UpdateChecker) extractAndInstall(archivePath, assetName string) error 
 	}
 
 	// Make executable on Unix systems
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(currentExe, 0755); err != nil {
-			return fmt.Errorf("failed to make binary executable: %v", err)
-		}
+	if err := os.Chmod(currentExe, 0755); err != nil {
+		return fmt.Errorf("failed to make binary executable: %v", err)
 	}
 
 	// Clean up
@@ -205,9 +225,44 @@ func (uc *UpdateChecker) extractAndInstall(archivePath, assetName string) error 
 	os.Remove(newBinaryPath)
 	os.Remove(backupPath)
 
-	fmt.Println("✅ Update installed successfully!")
+	fmt.Println("Update installed successfully!")
 	fmt.Println("Please restart ForgeCache to use the new version.")
 
+	return nil
+}
+
+// installOnWindows handles the Windows-specific update process
+func (uc *UpdateChecker) installOnWindows(currentExe, newBinaryPath, archivePath string) error {
+	// On Windows, we can't replace a running executable, so we:
+	// 1. Move the current exe to .old
+	// 2. Move the new exe to the current location
+	// 3. The .old file will be cleaned up on next run
+	
+	oldPath := currentExe + ".old"
+	
+	// Remove any existing .old file
+	os.Remove(oldPath)
+	
+	// Move current executable to .old (this works even if it's running)
+	if err := os.Rename(currentExe, oldPath); err != nil {
+		return fmt.Errorf("failed to move current executable: %v", err)
+	}
+	
+	// Move new executable to current location
+	if err := uc.copyFile(newBinaryPath, currentExe); err != nil {
+		// Try to restore the original if this fails
+		os.Rename(oldPath, currentExe)
+		return fmt.Errorf("failed to install new executable: %v", err)
+	}
+	
+	// Clean up
+	os.Remove(archivePath)
+	os.Remove(newBinaryPath)
+	
+	fmt.Println("Update installed successfully!")
+	fmt.Println("The old version will be cleaned up automatically.")
+	fmt.Println("Please restart ForgeCache to use the new version.")
+	
 	return nil
 }
 
