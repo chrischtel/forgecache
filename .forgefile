@@ -1,0 +1,9 @@
+[toolchain]
+  go = "1.22"
+
+[build]
+  cmd = "go build"
+
+[cache]
+  inputs = ["go.mod", "go.sum", "**/*.go"]
+  outputs = ["./"]
