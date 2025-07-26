@@ -41,11 +41,6 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "forge",
 	Short: fmt.Sprintf("ForgeCache - Universal Dev Cache & Dependency Manager %s", version),
-	Long: `ForgeCache is a cross-language, cross-project dev tool that helps you:
-- Cache and re-use build artifacts across runs and machines
-- Manage language toolchains (like Go 1.21, Rust nightly, etc.)
-- Track inputs/outputs to only rebuild when truly needed
-- Keep all projects reproducible and fast`,
 }
 
 func main() {
